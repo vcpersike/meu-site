@@ -1,0 +1,73 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches:
+      - main
+      - stage
+      - dev
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: 18.17.1
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm install -g ionic
+
+      - name: Build the Ionic app
+        run: |
+          ionic build --prod
+
+      - name: Create .htaccess
+        run: |
+          cat <<EOT > ./www/.htaccess
+          <IfModule mod_rewrite.c>
+          RewriteEngine On
+          RewriteBase /subdirectory
+          RewriteRule ^index\.html$ - [L]
+          RewriteCond %{REQUEST_FILENAME} !-f
+          RewriteCond %{REQUEST_FILENAME} !-d
+          RewriteCond %{REQUEST_FILENAME} !-l
+          RewriteRule . /index.html [L]
+          </IfModule>
+          EOT
+
+      - name: Connect via SSH and deploy to PROD
+        if: github.ref == 'refs/heads/main'
+        run: |
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > deploy_key
+          chmod 600 deploy_key
+          sudo apt-get install -y sshpass rsync
+          sshpass -p "${{ secrets.SSH_PASSWORD }}" rsync -rlgoDzvc -e "ssh -o StrictHostKeyChecking=no -p ${{ secrets.SSH_PORT }} -i deploy_key" ./www/ "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.SSH_TARGET_DIR }}"
+          rm -rf deploy_key
+        shell: bash
+
+      - name: Connect via SSH and deploy to STAGE
+        if: github.ref == 'refs/heads/stage'
+        run: |
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > deploy_key
+          chmod 600 deploy_key
+          sudo apt-get install -y sshpass rsync
+          sshpass -p "${{ secrets.SSH_PASSWORD }}" rsync -rlgoDzvc -e "ssh -o StrictHostKeyChecking=no -p ${{ secrets.SSH_PORT }} -i deploy_key" ./www/ "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.SSH_TARGET_DIR }}/stage"
+          rm -rf deploy_key
+        shell: bash
+
+      - name: Connect via SSH and deploy to DEV
+        if: github.ref == 'refs/heads/dev'
+        run: |
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > deploy_key
+          chmod 600 deploy_key
+          sudo apt-get install -y sshpass rsync
+          sshpass -p "${{ secrets.SSH_PASSWORD }}" rsync -rlgoDzvc -e "ssh -o StrictHostKeyChecking=no -p ${{ secrets.SSH_PORT }} -i deploy_key" ./www/ "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.SSH_TARGET_DIR }}/dev"
+          rm -rf deploy_key
+        shell: bash
